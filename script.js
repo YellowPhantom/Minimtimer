@@ -2,64 +2,62 @@ const canvas = document.getElementById('timer-canvas');
 const ctx = canvas.getContext('2d');
 const uiContainer = document.getElementById('ui-container');
 
-// Canvas setup
-let width, height;
-function resize() {
-    width = canvas.width = window.innerWidth;
-    height = canvas.height = window.innerHeight;
-}
-window.addEventListener('resize', resize);
-resize();
-
 // State variables
-let timerMode = 'none'; // 'countdown' or 'stopwatch'
+let timerMode = 'none'; 
 let startTime = 0;
 let duration = 0;
 let isRunning = false;
 let particles = [];
 let currentSecondDisplay = -1;
 let animationFrameId;
+let width, height;
 
-// --- Web Audio API for synthetic sounds ---
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+// Retina Display Scaling for crisp text
+function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.scale(dpr, dpr);
+}
+window.addEventListener('resize', resize);
+resize();
 
-function playTick() {
+// Lazy-loaded Audio Context (Fixes Safari/iOS block)
+let audioCtx;
+function playSound(type) {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
     if (audioCtx.state === 'suspended') audioCtx.resume();
+    
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(600, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.05);
-    
-    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
-    
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.05);
-}
-
-function playPop() {
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.1);
-    
-    gain.gain.setValueAtTime(0.6, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+    if (type === 'tick') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.05);
+    } else if (type === 'pop') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+    }
     
     osc.connect(gain);
     gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.1);
 }
 
-// --- UI Interaction ---
+// UI Interaction
 document.getElementById('btn-countdown').addEventListener('click', (e) => {
     e.target.classList.add('active');
     document.getElementById('btn-stopwatch').classList.remove('active');
@@ -87,30 +85,28 @@ document.getElementById('start-stopwatch').addEventListener('click', () => {
     startTimer();
 });
 
-canvas.addEventListener('click', () => {
+// Touch/Click to stop
+canvas.addEventListener('pointerdown', () => {
     if (isRunning) {
         isRunning = false;
         cancelAnimationFrame(animationFrameId);
         uiContainer.classList.remove('hidden');
-        ctx.clearRect(0, 0, width, height); // Clear screen on reset
+        ctx.clearRect(0, 0, width, height);
     }
 });
 
 function startTimer() {
-    // Unlock audio context on user gesture
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    
+    playSound('tick'); // Unlocks audio context securely
     startTime = Date.now();
     isRunning = true;
-    currentSecondDisplay = -1; // Force visual update
+    currentSecondDisplay = -1; 
     uiContainer.classList.add('hidden');
     
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
-    lastTime = Date.now();
     animate();
 }
 
-// --- Animation Logic ---
+// Animation & Physics Logic
 function getElapsedTime() {
     return (Date.now() - startTime) / 1000;
 }
@@ -120,29 +116,20 @@ function drawCircleFormation(centerVal) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
-    // Center Text (00:XX format)
-    ctx.font = '20px "Courier New", Courier, monospace';
+    ctx.font = '24px -apple-system, BlinkMacSystemFont, "SF Mono", "Courier New", monospace';
     const mins = Math.floor(centerVal / 60).toString().padStart(2, '0');
     const secs = (centerVal % 60).toString().padStart(2, '0');
     ctx.fillText(`${mins}:${secs}`, width / 2, height / 2);
 
-    // Scattered ring of surrounding numbers
-    ctx.font = '14px "Courier New", Courier, monospace';
-    const radiusX = Math.min(width, height) * 0.25;
-    const radiusY = Math.min(width, height) * 0.18;
+    ctx.font = '14px -apple-system, BlinkMacSystemFont, "SF Mono", "Courier New", monospace';
+    const radius = Math.min(width, height) * 0.3;
     const count = 12;
 
     for(let i = 0; i < count; i++) {
-        const angle = (i / count) * Math.PI * 2;
-        // Introduce slight asymmetry similar to the video
-        const rX = radiusX + Math.sin(i * 2.5) * 15; 
-        const rY = radiusY + Math.cos(i * 1.5) * 15;
-
-        const x = width / 2 + Math.cos(angle) * rX;
-        const y = height / 2 + Math.sin(angle) * rY;
-
-        // Display numbers relative to the current sequence
-        const displayVal = Math.max(0, centerVal + (i - Math.floor(count/2)));
+        const angle = (i / count) * Math.PI * 2 - (Math.PI / 2);
+        const x = width / 2 + Math.cos(angle) * radius;
+        const y = height / 2 + Math.sin(angle) * radius;
+        const displayVal = Math.max(0, centerVal + i);
         ctx.fillText(displayVal, x, y);
     }
 }
@@ -161,8 +148,10 @@ function generateGridParticles(number, totalCount) {
 
         particles.push({
             val: number,
-            x: width / 2 + (Math.random() - 0.5) * 50, // Burst from center
-            y: height / 2 + (Math.random() - 0.5) * 50,
+            x: width / 2 + (Math.random() - 0.5) * 20, 
+            y: height / 2 + (Math.random() - 0.5) * 20,
+            vx: 0,
+            vy: 0,
             targetX: spacingX * (col + 1),
             targetY: spacingY * (row + 1)
         });
@@ -171,25 +160,29 @@ function generateGridParticles(number, totalCount) {
 
 function drawGridParticles() {
     ctx.fillStyle = '#111';
-    ctx.font = '16px "Courier New", Courier, monospace';
+    ctx.font = '16px -apple-system, BlinkMacSystemFont, "SF Mono", "Courier New", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
+    // Spring Physics Implementation
+    const tension = 0.12;
+    const friction = 0.75;
+
     particles.forEach(p => {
-        // Smooth lerp movement towards grid target
-        p.x += (p.targetX - p.x) * 0.08;
-        p.y += (p.targetY - p.y) * 0.08;
+        p.vx += (p.targetX - p.x) * tension;
+        p.vy += (p.targetY - p.y) * tension;
+        p.vx *= friction;
+        p.vy *= friction;
+        
+        p.x += p.vx;
+        p.y += p.vy;
+        
         ctx.fillText(p.val, p.x, p.y);
     });
 }
 
-let lastTime = Date.now();
 function animate() {
     if (!isRunning) return;
-    
-    const now = Date.now();
-    lastTime = now;
-
     ctx.clearRect(0, 0, width, height);
 
     let currentSecond;
@@ -199,42 +192,33 @@ function animate() {
         
         if (remaining === 0) {
             isRunning = false;
-            generateGridParticles(0, 150); // Final burst of zeros
-            playPop();
+            generateGridParticles(0, 150);
+            playSound('pop');
+            drawGridParticles();
+            return; // Halt loop
         }
     } else {
         currentSecond = Math.floor(getElapsedTime());
     }
 
-    // Trigger state changes / Sounds when second changes
     if (currentSecond !== currentSecondDisplay) {
         currentSecondDisplay = currentSecond;
 
         if (timerMode === 'countdown' && currentSecond <= 10 && currentSecond > 0) {
-            // Exponential particle growth: 10s = 1 particle, 1s = 100 particles
             const count = Math.floor(Math.pow(11 - currentSecond, 2));
             generateGridParticles(currentSecond, count);
-            playPop();
-        } else if (timerMode === 'countdown' && currentSecond === 0) {
-            // Handled in completion check
+            playSound('pop');
         } else {
-            playTick();
+            playSound('tick');
         }
     }
 
-    // Draw frame
     if (timerMode === 'countdown') {
-        if (currentSecond > 10) {
-            drawCircleFormation(currentSecond);
-        } else {
-            drawGridParticles();
-        }
+        if (currentSecond > 10) drawCircleFormation(currentSecond);
+        else drawGridParticles();
     } else {
-        // Stopwatch always uses the floating circle
         drawCircleFormation(currentSecond);
     }
 
-    if (isRunning || (timerMode === 'countdown' && currentSecond === 0)) {
-        animationFrameId = requestAnimationFrame(animate);
-    }
+    animationFrameId = requestAnimationFrame(animate);
 }
