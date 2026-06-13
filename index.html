@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimalist Timer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="ui-container">
+        <div class="tabs">
+            <button id="btn-countdown" class="active">Countdown</button>
+            <button id="btn-stopwatch">Stopwatch</button>
+        </div>
+        
+        <div id="countdown-settings" class="settings-panel">
+            <input type="number" id="countdown-input" value="15" min="1" placeholder="Seconds">
+            <button id="start-countdown" class="start-btn">Start</button>
+        </div>
+        
+        <div id="stopwatch-settings" class="settings-panel hidden">
+            <button id="start-stopwatch" class="start-btn">Start Stopwatch</button>
+        </div>
+        
+        <p class="hint">Click anywhere on the screen to stop and return to menu.</p>
+    </div>
+
+    <canvas id="timer-canvas"></canvas>
+
+    <script src="script.js"></script>
+</body>
+</html>
