@@ -7,25 +7,15 @@
     <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-    <div id="ui-container">
-        <div class="tabs">
-            <button id="btn-countdown" class="active">Countdown</button>
-            <button id="btn-stopwatch">Stopwatch</button>
+    <div id="controls" class="visible">
+        <div class="menu">
+            <input type="number" id="time-input" value="15" min="1" placeholder="Seconds">
+            <button id="start-btn">Start Timer</button>
         </div>
-        
-        <div id="countdown-settings" class="settings-panel">
-            <input type="number" id="countdown-input" value="15" min="1" placeholder="Secs">
-            <button id="start-countdown" class="start-btn">Start</button>
-        </div>
-        
-        <div id="stopwatch-settings" class="settings-panel hidden">
-            <button id="start-stopwatch" class="start-btn">Start</button>
-        </div>
-        
-        <p class="hint">Tap anywhere to stop.</p>
+        <p class="hint">Tap anywhere to cancel</p>
     </div>
 
-    <canvas id="timer-canvas"></canvas>
+    <canvas id="canvas"></canvas>
 
     <script src="./script.js"></script>
 </body>

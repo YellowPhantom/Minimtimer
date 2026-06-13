@@ -1,223 +1,208 @@
-const canvas = document.getElementById('timer-canvas');
+const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-const uiContainer = document.getElementById('ui-container');
+const controls = document.getElementById('controls');
+const timeInput = document.getElementById('time-input');
 
-// State variables
-let timerMode = 'none'; 
+let width, height;
+let audioCtx;
+let isRunning = false;
 let startTime = 0;
 let duration = 0;
-let isRunning = false;
-let particles = [];
-let currentSecondDisplay = -1;
+let lastSecond = -1;
 let animationFrameId;
-let width, height;
+let lastRenderTime = 0;
+let ringRotation = 0;
 
-// Retina Display Scaling for crisp text
+// High-DPI Display Scaling for crystal clear text
 function resize() {
     const dpr = window.devicePixelRatio || 1;
     width = window.innerWidth;
     height = window.innerHeight;
     canvas.width = width * dpr;
     canvas.height = height * dpr;
-    ctx.scale(dpr, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Reset scale before applying
 }
 window.addEventListener('resize', resize);
 resize();
 
-// Lazy-loaded Audio Context (Fixes Safari/iOS block)
-let audioCtx;
-function playSound(type) {
+// --- Web Audio API Engine ---
+function initAudio() {
     if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    
-    if (type === 'tick') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(600, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.05);
-        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.05);
-    } else if (type === 'pop') {
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.1);
-    }
-    
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
 }
 
-// UI Interaction
-document.getElementById('btn-countdown').addEventListener('click', (e) => {
-    e.target.classList.add('active');
-    document.getElementById('btn-stopwatch').classList.remove('active');
-    document.getElementById('countdown-settings').classList.remove('hidden');
-    document.getElementById('stopwatch-settings').classList.add('hidden');
-});
+function playHeartbeat() {
+    if (!audioCtx) return;
+    const playThump = (freq, timeOffset) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + timeOffset);
+        osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + timeOffset + 0.1);
+        gain.gain.setValueAtTime(0.4, audioCtx.currentTime + timeOffset);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + timeOffset + 0.1);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime + timeOffset);
+        osc.stop(audioCtx.currentTime + timeOffset + 0.1);
+    };
+    playThump(60, 0);      // First beat
+    playThump(50, 0.15);   // Second beat (echo)
+}
 
-document.getElementById('btn-stopwatch').addEventListener('click', (e) => {
-    e.target.classList.add('active');
-    document.getElementById('btn-countdown').classList.remove('active');
-    document.getElementById('stopwatch-settings').classList.remove('hidden');
-    document.getElementById('countdown-settings').classList.add('hidden');
-});
+function playRapidPop() {
+    if (!audioCtx) return;
+    // Rapid satisfying 3-burst trill for the ripple expansion
+    for (let i = 0; i < 3; i++) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(500 + (i * 150), audioCtx.currentTime + (i * 0.04));
+        osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + (i * 0.04) + 0.05);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime + (i * 0.04));
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + (i * 0.04) + 0.05);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime + (i * 0.04));
+        osc.stop(audioCtx.currentTime + (i * 0.04) + 0.05);
+    }
+}
 
-document.getElementById('start-countdown').addEventListener('click', () => {
-    const val = parseInt(document.getElementById('countdown-input').value);
-    if(isNaN(val) || val <= 0) return;
+// --- Interaction ---
+document.getElementById('start-btn').addEventListener('click', () => {
+    const val = parseInt(timeInput.value);
+    if (isNaN(val) || val <= 0) return;
+    
+    initAudio();
     duration = val;
-    timerMode = 'countdown';
-    startTimer();
+    startTime = Date.now();
+    isRunning = true;
+    lastSecond = -1;
+    lastRenderTime = Date.now();
+    
+    controls.classList.add('hidden');
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    animate();
 });
 
-document.getElementById('start-stopwatch').addEventListener('click', () => {
-    timerMode = 'stopwatch';
-    startTimer();
-});
-
-// Touch/Click to stop
 canvas.addEventListener('pointerdown', () => {
     if (isRunning) {
         isRunning = false;
-        cancelAnimationFrame(animationFrameId);
-        uiContainer.classList.remove('hidden');
+        controls.classList.remove('hidden');
         ctx.clearRect(0, 0, width, height);
     }
 });
 
-function startTimer() {
-    playSound('tick'); // Unlocks audio context securely
-    startTime = Date.now();
-    isRunning = true;
-    currentSecondDisplay = -1; 
-    uiContainer.classList.add('hidden');
-    
-    if (animationFrameId) cancelAnimationFrame(animationFrameId);
-    animate();
-}
+// --- Render Engine ---
+function drawPhase1(sec, delta) {
+    // Smooth CCW rotation
+    ringRotation -= delta * 0.5; // 0.5 radians per second
 
-// Animation & Physics Logic
-function getElapsedTime() {
-    return (Date.now() - startTime) / 1000;
-}
-
-function drawCircleFormation(centerVal) {
-    ctx.fillStyle = '#111';
+    // Center MM:SS
+    ctx.fillStyle = '#000';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    ctx.font = '700 64px system-ui, -apple-system, sans-serif';
     
-    ctx.font = '24px -apple-system, BlinkMacSystemFont, "SF Mono", "Courier New", monospace';
-    const mins = Math.floor(centerVal / 60).toString().padStart(2, '0');
-    const secs = (centerVal % 60).toString().padStart(2, '0');
-    ctx.fillText(`${mins}:${secs}`, width / 2, height / 2);
+    const m = Math.floor(sec / 60).toString().padStart(2, '0');
+    const s = (sec % 60).toString().padStart(2, '0');
+    ctx.fillText(`${m}:${s}`, width / 2, height / 2);
 
-    ctx.font = '14px -apple-system, BlinkMacSystemFont, "SF Mono", "Courier New", monospace';
-    const radius = Math.min(width, height) * 0.3;
-    const count = 12;
-
-    for(let i = 0; i < count; i++) {
-        const angle = (i / count) * Math.PI * 2 - (Math.PI / 2);
+    // Tight 9-number ring
+    const radius = 120;
+    ctx.font = '500 22px system-ui, -apple-system, sans-serif';
+    
+    for (let i = 0; i < 9; i++) {
+        const angle = (i / 9) * Math.PI * 2 + ringRotation;
         const x = width / 2 + Math.cos(angle) * radius;
         const y = height / 2 + Math.sin(angle) * radius;
-        const displayVal = Math.max(0, centerVal + i);
-        ctx.fillText(displayVal, x, y);
+        ctx.fillText(sec + i, x, y);
     }
 }
 
-function generateGridParticles(number, totalCount) {
-    particles = [];
-    const cols = Math.ceil(Math.sqrt(totalCount));
-    const rows = Math.ceil(totalCount / cols);
-
-    const spacingX = width / (cols + 1);
-    const spacingY = height / (rows + 1);
-
-    for (let i = 0; i < totalCount; i++) {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-
-        particles.push({
-            val: number,
-            x: width / 2 + (Math.random() - 0.5) * 20, 
-            y: height / 2 + (Math.random() - 0.5) * 20,
-            vx: 0,
-            vy: 0,
-            targetX: spacingX * (col + 1),
-            targetY: spacingY * (row + 1)
-        });
-    }
-}
-
-function drawGridParticles() {
-    ctx.fillStyle = '#111';
-    ctx.font = '16px -apple-system, BlinkMacSystemFont, "SF Mono", "Courier New", monospace';
+function drawPhase2(sec, remaining) {
+    ctx.fillStyle = '#000';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    ctx.font = '600 24px system-ui, -apple-system, sans-serif';
 
-    // Spring Physics Implementation
-    const tension = 0.12;
-    const friction = 0.75;
+    // Progress goes from 1.0 (at 9s) to 10.0 (at 0s)
+    const progress = 10 - remaining; 
+    const currentRings = Math.max(1, Math.floor(progress));
+    const pulse = progress % 1; // 0 to 1 over the course of each second
+    
+    // Smooth spring expansion burst
+    const easePulse = 1 - Math.pow(1 - pulse, 4);
+    const baseSpacing = 45;
+    const dynamicSpacing = baseSpacing + (progress * 2.5) + (easePulse * 8);
 
-    particles.forEach(p => {
-        p.vx += (p.targetX - p.x) * tension;
-        p.vy += (p.targetY - p.y) * tension;
-        p.vx *= friction;
-        p.vy *= friction;
+    for (let n = 0; n <= currentRings; n++) {
+        if (n === 0) {
+            // Absolute Center
+            ctx.font = '700 48px system-ui, -apple-system, sans-serif';
+            ctx.fillText(sec, width / 2, height / 2);
+            ctx.font = '600 24px system-ui, -apple-system, sans-serif';
+            continue;
+        }
         
-        p.x += p.vx;
-        p.y += p.vy;
+        // Hexagonal perimeter multiplication
+        const items = n * 6;
+        const radius = n * dynamicSpacing;
+        const offsetAngle = (n % 2 === 0) ? 0 : (Math.PI / items); // Interlocks concentric shapes
         
-        ctx.fillText(p.val, p.x, p.y);
-    });
+        // Fade in the outermost ring
+        let opacity = 1;
+        if (n === currentRings) {
+            opacity = pulse; 
+        }
+        ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
+
+        for (let i = 0; i < items; i++) {
+            const angle = (i / items) * Math.PI * 2 + offsetAngle;
+            const x = width / 2 + Math.cos(angle) * radius;
+            const y = height / 2 + Math.sin(angle) * radius;
+            ctx.fillText(sec, x, y);
+        }
+    }
 }
 
 function animate() {
     if (!isRunning) return;
+    
+    const now = Date.now();
+    const delta = (now - lastRenderTime) / 1000;
+    lastRenderTime = now;
+
+    const elapsed = (now - startTime) / 1000;
+    const remaining = Math.max(0, duration - elapsed);
+    const currentSecond = Math.ceil(remaining);
+
     ctx.clearRect(0, 0, width, height);
 
-    let currentSecond;
-    if (timerMode === 'countdown') {
-        const remaining = Math.max(0, duration - getElapsedTime());
-        currentSecond = Math.ceil(remaining);
-        
-        if (remaining === 0) {
-            isRunning = false;
-            generateGridParticles(0, 150);
-            playSound('pop');
-            drawGridParticles();
-            return; // Halt loop
+    // Audio & State Triggers
+    if (currentSecond !== lastSecond) {
+        if (currentSecond > 9) {
+            playHeartbeat();
+        } else if (currentSecond > 0 && lastSecond !== -1) {
+            playRapidPop(); // Trigger synchronized rapid geometric expansion sounds
+        } else if (currentSecond === 0 && lastSecond !== -1) {
+            playRapidPop(); 
         }
-    } else {
-        currentSecond = Math.floor(getElapsedTime());
+        lastSecond = currentSecond;
     }
 
-    if (currentSecond !== currentSecondDisplay) {
-        currentSecondDisplay = currentSecond;
-
-        if (timerMode === 'countdown' && currentSecond <= 10 && currentSecond > 0) {
-            const count = Math.floor(Math.pow(11 - currentSecond, 2));
-            generateGridParticles(currentSecond, count);
-            playSound('pop');
-        } else {
-            playSound('tick');
-        }
-    }
-
-    if (timerMode === 'countdown') {
-        if (currentSecond > 10) drawCircleFormation(currentSecond);
-        else drawGridParticles();
+    // Render Phases
+    if (currentSecond > 9) {
+        drawPhase1(currentSecond, delta);
+    } else if (currentSecond > 0) {
+        drawPhase2(currentSecond, remaining);
     } else {
-        drawCircleFormation(currentSecond);
+        isRunning = false;
+        controls.classList.remove('hidden');
+        ctx.clearRect(0, 0, width, height);
+        return; // Halt loop gracefully
     }
 
     animationFrameId = requestAnimationFrame(animate);
